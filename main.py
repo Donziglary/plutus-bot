@@ -8,11 +8,12 @@ import risk_manager
 
 def run_enterprise_backtest():
     print("=" * 50)
-    print("🤖 PLUTUS QUANT TRADING ENGINE v10.0 - ACTIVE")
+    print("🤖 PLUTUS QUANT TRADING ENGINE v11.0 - ACTIVE")
     print("=" * 50)
-    print("🚀 Initializing Squeeze Sniper Optimization Engine...")
+    print("🚀 Initializing Adaptive State-Machine Exit Engine...")
     
     try:
+        # Use your exact data fetcher function name here
         df = data_fetcher.fetch_real_futures_data(config.SYMBOL, config.TIMEFRAME, config.DATA_LIMIT)
     except Exception as e:
         print(f"❌ Data fetch failed: {e}")
@@ -22,7 +23,7 @@ def run_enterprise_backtest():
         print("❌ No data returned from exchange.")
         return
 
-    print("⚙️ Simulating executions with ADVANCED Trailing Stop & Dynamic Risk...")
+    print("⚙️ Simulating executions with Multi-Stage Exit Machine & Path Heuristics...")
     df = strategy.process_market(df)
     
     balance = config.INITIAL_BALANCE
@@ -37,78 +38,125 @@ def run_enterprise_backtest():
             high = current_row['high']
             low = current_row['low']
             close = current_row['close']
+            open_p = current_row['open']
+            atr = current_row['atr']
+            
+            trade_closed = False
+            exit_price = 0.0
+            exit_reason = ""
             
             if active_position['type'] == 'Long':
-                # Update highest price for Trailing Stop
-                if close > active_position['highest_price']:
-                    active_position['highest_price'] = close
-                    # Live trailing stop logic
-                    new_sl = close - (current_row['atr'] * 1.5)
-                    if new_sl > active_position['sl']:
-                        active_position['sl'] = new_sl
+                if high > active_position['highest_price']:
+                    active_position['highest_price'] = high
                 
-                # Check Stop Loss / Trailing Stop
-                if low <= active_position['sl']:
-                    pnl = ((active_position['sl'] - active_position['entry_price']) / active_position['entry_price']) * active_position['size']
-                    pnl -= active_position['size'] * (config.TAKER_FEE + config.SLIPPAGE_PCT)
-                    balance += pnl
-                    trades.append({
-                        'Entry Time': active_position['entry_time'], 'Exit Time': current_time,
-                        'Type': 'Long', 'Entry Price': active_position['entry_price'],
-                        'Exit Price': active_position['sl'], 'Reason': 'Trailing SL/Stop Loss', 
-                        'Net PnL': pnl, 'Balance': balance
-                    })
-                    active_position = None
+                unrealized_atr_gain = (active_position['highest_price'] - active_position['entry_price']) / atr if atr > 0 else 0
+                
+                # 1. Breakeven Migration State
+                if active_position['state'] == 'Initial' and unrealized_atr_gain >= config.BREAKEVEN_ACTIVATION_ATR:
+                    active_position['state'] = 'Breakeven'
+                    active_position['sl'] = active_position['entry_price'] * (1 + config.TAKER_FEE + config.SLIPPAGE_PCT)
+                
+                # 2. Trailing Activation State
+                if active_position['state'] in ['Initial', 'Breakeven'] and unrealized_atr_gain >= config.TRAILING_ACTIVATION_ATR:
+                    active_position['state'] = 'Trailing'
+                
+                # 3. Dynamic Trailing SL Calculation
+                if active_position['state'] == 'Trailing':
+                    calculated_sl = active_position['highest_price'] - (atr * config.TRAILING_DISTANCE_ATR)
+                    if calculated_sl > active_position['sl']:
+                        active_position['sl'] = calculated_sl
+                
+                # Evaluate Exit Conditions
+                is_stop_hit = (low <= active_position['sl'])
+                is_tp_hit = (high >= active_position['tp'])
+                
+                if is_stop_hit and is_tp_hit:
+                    # Path heuristic based on candle color structure
+                    if close >= open_p:
+                        exit_price = active_position['tp']
+                        exit_reason = f"Take Profit (Heuristic - {active_position['state']})"
+                        trade_closed = True
+                    else:
+                        exit_price = active_position['sl']
+                        exit_reason = f"Stop/Trailing Hit (Heuristic - {active_position['state']})"
+                        trade_closed = True
+                elif is_tp_hit:
+                    exit_price = active_position['tp']
+                    exit_reason = "Take Profit"
+                    trade_closed = True
+                elif is_stop_hit:
+                    exit_price = active_position['sl']
+                    exit_reason = f"Stop/Trailing Hit ({active_position['state']})"
+                    trade_closed = True
                     
-                # Check Take Profit
-                elif high >= active_position['tp']:
-                    pnl = ((active_position['tp'] - active_position['entry_price']) / active_position['entry_price']) * active_position['size']
+                if trade_closed:
+                    pnl = ((exit_price - active_position['entry_price']) / active_position['entry_price']) * active_position['size']
                     pnl -= active_position['size'] * (config.TAKER_FEE + config.SLIPPAGE_PCT)
                     balance += pnl
                     trades.append({
                         'Entry Time': active_position['entry_time'], 'Exit Time': current_time,
                         'Type': 'Long', 'Entry Price': active_position['entry_price'],
-                        'Exit Price': active_position['tp'], 'Reason': 'Take Profit', 
+                        'Exit Price': exit_price, 'Reason': exit_reason, 
                         'Net PnL': pnl, 'Balance': balance
                     })
                     active_position = None
                     
             elif active_position['type'] == 'Short':
-                # Update lowest price for Trailing Stop
-                if close < active_position['lowest_price']:
-                    active_position['lowest_price'] = close
-                    # Live trailing stop logic
-                    new_sl = close + (current_row['atr'] * 1.5)
-                    if new_sl < active_position['sl']:
-                        active_position['sl'] = new_sl
-                        
-                # Check Stop Loss / Trailing Stop
-                if high >= active_position['sl']:
-                    pnl = ((active_position['entry_price'] - active_position['sl']) / active_position['entry_price']) * active_position['size']
-                    pnl -= active_position['size'] * (config.TAKER_FEE + config.SLIPPAGE_PCT)
-                    balance += pnl
-                    trades.append({
-                        'Entry Time': active_position['entry_time'], 'Exit Time': current_time,
-                        'Type': 'Short', 'Entry Price': active_position['entry_price'],
-                        'Exit Price': active_position['sl'], 'Reason': 'Trailing SL/Stop Loss', 
-                        'Net PnL': pnl, 'Balance': balance
-                    })
-                    active_position = None
+                if low < active_position['lowest_price']:
+                    active_position['lowest_price'] = low
+                
+                unrealized_atr_gain = (active_position['entry_price'] - active_position['lowest_price']) / atr if atr > 0 else 0
+                
+                # 1. Breakeven Migration State
+                if active_position['state'] == 'Initial' and unrealized_atr_gain >= config.BREAKEVEN_ACTIVATION_ATR:
+                    active_position['state'] = 'Breakeven'
+                    active_position['sl'] = active_position['entry_price'] * (1 - (config.TAKER_FEE + config.SLIPPAGE_PCT))
+                
+                # 2. Trailing Activation State
+                if active_position['state'] in ['Initial', 'Breakeven'] and unrealized_atr_gain >= config.TRAILING_ACTIVATION_ATR:
+                    active_position['state'] = 'Trailing'
+                
+                # 3. Dynamic Trailing SL Calculation
+                if active_position['state'] == 'Trailing':
+                    calculated_sl = active_position['lowest_price'] + (atr * config.TRAILING_DISTANCE_ATR)
+                    if calculated_sl < active_position['sl']:
+                        active_position['sl'] = calculated_sl
+                
+                # Evaluate Exit Conditions
+                is_stop_hit = (high >= active_position['sl'])
+                is_tp_hit = (low <= active_position['tp'])
+                
+                if is_stop_hit and is_tp_hit:
+                    if close <= open_p:
+                        exit_price = active_position['tp']
+                        exit_reason = f"Take Profit (Heuristic - {active_position['state']})"
+                        trade_closed = True
+                    else:
+                        exit_price = active_position['sl']
+                        exit_reason = f"Stop/Trailing Hit (Heuristic - {active_position['state']})"
+                        trade_closed = True
+                elif is_tp_hit:
+                    exit_price = active_position['tp']
+                    exit_reason = "Take Profit"
+                    trade_closed = True
+                elif is_stop_hit:
+                    exit_price = active_position['sl']
+                    exit_reason = f"Stop/Trailing Hit ({active_position['state']})"
+                    trade_closed = True
                     
-                # Check Take Profit
-                elif low <= active_position['tp']:
-                    pnl = ((active_position['entry_price'] - active_position['tp']) / active_position['entry_price']) * active_position['size']
+                if trade_closed:
+                    pnl = ((active_position['entry_price'] - exit_price) / active_position['entry_price']) * active_position['size']
                     pnl -= active_position['size'] * (config.TAKER_FEE + config.SLIPPAGE_PCT)
                     balance += pnl
                     trades.append({
                         'Entry Time': active_position['entry_time'], 'Exit Time': current_time,
                         'Type': 'Short', 'Entry Price': active_position['entry_price'],
-                        'Exit Price': active_position['tp'], 'Reason': 'Take Profit', 
+                        'Exit Price': exit_price, 'Reason': exit_reason, 
                         'Net PnL': pnl, 'Balance': balance
                     })
                     active_position = None
 
-        # Check for new signals
+        # Check for incoming entry signals
         if active_position is None and current_row['signal'] != 0:
             pos_size, lev = risk_manager.calculate_position_size(
                 balance, current_row['atr'], current_row['close'], 
@@ -121,17 +169,19 @@ def run_enterprise_backtest():
                         'type': 'Long', 'entry_price': current_row['close'], 'entry_time': current_time,
                         'size': pos_size, 'highest_price': current_row['close'],
                         'sl': current_row['close'] - current_row['sl_distance_price'],
-                        'tp': current_row['close'] + current_row['tp_distance_price']
+                        'tp': current_row['close'] + current_row['tp_distance_price'],
+                        'state': 'Initial'
                     }
                 elif current_row['signal'] == -1:
                     active_position = {
                         'type': 'Short', 'entry_price': current_row['close'], 'entry_time': current_time,
                         'size': pos_size, 'lowest_price': current_row['close'],
                         'sl': current_row['close'] + current_row['sl_distance_price'],
-                        'tp': current_row['close'] - current_row['tp_distance_price']
+                        'tp': current_row['close'] - current_row['tp_distance_price'],
+                        'state': 'Initial'
                     }
 
-    # Generate Report
+    # Post-Execution Analytical Reporting Engine
     df_trades = pd.DataFrame(trades)
     if not df_trades.empty:
         df_trades.to_csv("enterprise_backtest.csv", index=False)
@@ -157,6 +207,21 @@ def run_enterprise_backtest():
         print(f"Starting Balance:      ${config.INITIAL_BALANCE:,.2f}")
         print(f"Final Balance:         ${balance:,.2f}")
         print(f"Total Net Return:      {((balance - config.INITIAL_BALANCE)/config.INITIAL_BALANCE)*100:.2f}%")
+        print("="*40)
+        
+        # Monthly Performance Breakdown Interface
+        print("\n" + "="*40)
+        print(" MONTHLY PERFORMANCE BREAKDOWN ")
+        print("="*40)
+        df_trades['Month'] = pd.to_datetime(df_trades['Entry Time']).dt.strftime('%Y-%m')
+        grouped = df_trades.groupby('Month')
+        for month, group in grouped:
+            month_pnl = group['Net PnL'].sum()
+            month_trades = len(group)
+            month_wins = len(group[group['Net PnL'] > 0])
+            month_wr = (month_wins / month_trades) * 100 if month_trades > 0 else 0
+            month_ret_pct = (month_pnl / config.INITIAL_BALANCE) * 100
+            print(f"Month: {month} | Trades: {month_trades} | Win Rate: {month_wr:.2f}% | Net PnL: ${month_pnl:,.2f} ({month_ret_pct:+.2f}%)")
         print("="*40)
         print("📂 Results saved to: enterprise_backtest.csv")
     else:

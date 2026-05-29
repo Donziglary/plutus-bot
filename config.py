@@ -1,8 +1,8 @@
 # config.py
-# --- V10: VELOCITY & GEOMETRY SNIPER WITH DYNAMIC RISK ---
+# --- V11: ADAPTIVE STATE-MACHINE EXIT ENGINE ---
 SYMBOL = "SOLUSDT"         
 TIMEFRAME = "15m"          
-DATA_LIMIT = 5000  # Increased for multi-month backtesting
+DATA_LIMIT = 5000  
 
 # --- RISK MANAGEMENT ---
 INITIAL_BALANCE = 10000.0
@@ -31,7 +31,12 @@ VOLUME_MULT = 1.3
 MIN_BODY_EFFICIENCY = 0.60  
 MAX_WICK_RATIO = 0.25      
 
-# --- ASYMMETRIC REWARD MATH ---
+# --- MULTI-STAGE REWARD ENGINE ---
 ATR_PERIOD = 14
 ATR_SL_MULTIPLIER = 1.5    
-ATR_TP_MULTIPLIER = 3.5
+ATR_TP_MULTIPLIER = 3.5    
+
+# --- STATE MACHINE EXITS ---
+BREAKEVEN_ACTIVATION_ATR = 1.0  # Move to BE when profit hits 1.0 * ATR
+TRAILING_ACTIVATION_ATR = 2.0   # Activate trailing when profit hits 2.0 * ATR
+TRAILING_DISTANCE_ATR = 2.5     # Give the runner position room to breathe
