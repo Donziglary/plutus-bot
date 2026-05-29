@@ -1,35 +1,34 @@
 # config.py
-# --- SMART CONFIRMED BREAKOUT V7 ---
-SYMBOL = "SOLUSDT"
-TIMEFRAME = "15m"  # Changed to 15m to reduce noise and fakeouts
+# --- V8: THE SQUEEZE SNIPER (MTF & Volatility Compression) ---
+SYMBOL = "SOLUSDT"         
+TIMEFRAME = "15m"          # تایم فریم طلایی برای فرار از نویز
 DATA_LIMIT = 1500
 
 # --- RISK MANAGEMENT ---
 INITIAL_BALANCE = 10000.0
-ACCOUNT_RISK_PER_TRADE = 0.03
-MAX_LEVERAGE = 20  # Reduced max leverage slightly for 15m stability
+ACCOUNT_RISK_PER_TRADE = 0.03  
+MAX_LEVERAGE = 15          # لوریج کنترل‌شده برای تایم فریم بالاتر
 
 # --- REALISTIC EXECUTION SIMULATION ---
-TAKER_FEE = 0.0004
-SLIPPAGE_PCT = 0.0010
+TAKER_FEE = 0.0004     
+SLIPPAGE_PCT = 0.0010  
 
-# --- MARKET REGIME & TREND FILTERS ---
-EMA_MACRO_PERIOD = 200  # Macro trend filter
-ADX_PERIOD = 14
-ADX_MIN_TREND = 20  # Minimum trend strength to trade
+# --- MACRO TREND FILTER ---
+EMA_MACRO_PERIOD = 200     # در چارت 15 دقیقه، این معادل EMA 50 یک ساعته است (فیلتر جهت کلان)
 
-# --- BREAKOUT PARAMS ---
+# --- THE SQUEEZE PARAMS (Bollinger vs Keltner) ---
 BB_PERIOD = 20
-BB_STD = 2.0  # Standard deviation (entering earlier)
+BB_STD = 2.0               # باند بولینگر استاندارد
 
-RSI_PERIOD = 14
-RSI_BULL_CONFIRM = 55  # Earlier entry confirmation
-RSI_BEAR_CONFIRM = 45
+KC_PERIOD = 20
+KC_MULT = 1.5              # کانال کلتنر (اگر بولینگر بیاید داخل این، بازار فشرده است)
 
+# --- MOMENTUM & VOLUME CONFIRMATION ---
+RSI_PERIOD = 14            
 VOLUME_PERIOD = 20
-VOLUME_MULT = 1.3  # Require 30% above average volume (not extreme climax)
+VOLUME_MULT = 1.3          # تایید ورود پول در لحظه شکست فشردگی
 
-# --- REWARD MATH (Optimized Expectancy) ---
+# --- ASYMMETRIC REWARD MATH ---
 ATR_PERIOD = 14
-ATR_SL_MULTIPLIER = 1.8  # Stop loss wide enough to survive pullbacks
-ATR_TP_MULTIPLIER = 3.0  # Take profit realistic for 15m (R:R approx 1:1.66)
+ATR_SL_MULTIPLIER = 1.5    # استاپ بسیار تنگ (اگر فنر فیک باز شد، سریع خارج می‌شویم)
+ATR_TP_MULTIPLIER = 3.5    # تارگت بسیار بزرگ (شکار کل روند انفجاری - نسبت 1 به 2.3)
