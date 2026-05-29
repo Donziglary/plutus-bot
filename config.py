@@ -1,9 +1,8 @@
-```python
 # config.py
-# --- V9: VELOCITY & GEOMETRY SNIPER ---
+# --- V10: VELOCITY & GEOMETRY SNIPER WITH DYNAMIC RISK ---
 SYMBOL = "SOLUSDT"         
 TIMEFRAME = "15m"          
-DATA_LIMIT = 1500
+DATA_LIMIT = 5000  # Increased for multi-month backtesting
 
 # --- RISK MANAGEMENT ---
 INITIAL_BALANCE = 10000.0
@@ -28,17 +27,11 @@ RSI_PERIOD = 14
 VOLUME_PERIOD = 20
 VOLUME_MULT = 1.3          
 
-# --- CANDLE GEOMETRY FILTERS (NEW) ---
-# Body efficiency: the candle body must be at least 60% of the total candle range
-# (indicating strong buyer/seller momentum)
+# --- CANDLE GEOMETRY FILTERS ---
 MIN_BODY_EFFICIENCY = 0.60  
-
-# Max wick ratio: the wick in the breakout direction must not exceed 25%
-# (helps filter stop hunts and fake breakouts)
 MAX_WICK_RATIO = 0.25      
 
 # --- ASYMMETRIC REWARD MATH ---
 ATR_PERIOD = 14
 ATR_SL_MULTIPLIER = 1.5    
 ATR_TP_MULTIPLIER = 3.5
-```
