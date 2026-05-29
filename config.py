@@ -1,42 +1,90 @@
-# config.py
-# --- V11: ADAPTIVE STATE-MACHINE EXIT ENGINE ---
-SYMBOL = "SOLUSDT"         
-TIMEFRAME = "15m"          
-DATA_LIMIT = 5000  
+#!/usr/bin/env python3
+"""
+Trading system configuration module.
+All sensitive credentials are loaded from environment variables.
+"""
 
-# --- RISK MANAGEMENT ---
-INITIAL_BALANCE = 10000.0
-ACCOUNT_RISK_PER_TRADE = 0.03  
-MAX_LEVERAGE = 15          
+import os
+import logging
+from dataclasses import dataclass, field
+from typing import Optional, Final
 
-# --- REALISTIC EXECUTION SIMULATION ---
-TAKER_FEE = 0.0004     
-SLIPPAGE_PCT = 0.0010  
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
-# --- MACRO TREND FILTER ---
-EMA_MACRO_PERIOD = 200     
 
-# --- THE SQUEEZE PARAMS ---
-BB_PERIOD = 20
-BB_STD = 2.0               
-KC_PERIOD = 20
-KC_MULT = 1.5              
+@dataclass(frozen=True)
+class ExchangeConfig:
+    """Immutable exchange connection parameters."""
 
-# --- MOMENTUM & VOLUME ---
-RSI_PERIOD = 14            
-VOLUME_PERIOD = 20
-VOLUME_MULT = 1.3          
+    api_key: Final[str] = field(
+        default_factory=lambda: os.getenv("BINANCE_API_KEY", "")
+    )
+    api_secret: Final[str] = field(
+        default_factory=lambda: os.getenv("BINANCE_API_SECRET", "")
+    )
+    testnet: Final[bool] = field(
+        default_factory=lambda: os.getenv("EXCHANGE_TESTNET", "True").lower() == "true"
+    )
+    tld: Final[str] = "com"  # Binance top-level domain
+    recv_window: Final[int] = 60000
 
-# --- CANDLE GEOMETRY FILTERS ---
-MIN_BODY_EFFICIENCY = 0.60  
-MAX_WICK_RATIO = 0.25      
 
-# --- MULTI-STAGE REWARD ENGINE ---
-ATR_PERIOD = 14
-ATR_SL_MULTIPLIER = 1.5    
-ATR_TP_MULTIPLIER = 3.5    
+@dataclass(frozen=True)
+class TradingConfig:
+    """Core trading parameters, immutable after initialisation."""
 
-# --- STATE MACHINE EXITS ---
-BREAKEVEN_ACTIVATION_ATR = 1.0  # Move to BE when profit hits 1.0 * ATR
-TRAILING_ACTIVATION_ATR = 2.0   # Activate trailing when profit hits 2.0 * ATR
-TRAILING_DISTANCE_ATR = 2.5     # Give the runner position room to breathe
+    symbol: Final[str] = "BTCUSDT"
+    timeframe: Final[str] = "15m"  # Set to 15-minute candles
+    max_position_pct: Final[float] = 0.98  # Maximum capital allocation (98 %)
+    risk_per_trade_pct: Final[float] = 0.01  # 1 % risk per trade
+    leverage: Final[int] = 1
+    atr_period: Final[int] = 14
+    atr_multiplier_sl: Final[float] = 2.0  # Stop-loss distance multiplier
+    trailing_activation_pct: Final[float] = (
+        0.005  # 0.5 % profit to activate trailing stop
+    )
+    breakeven_activation_pct: Final[float] = 0.003  # 0.3 % profit to move SL to entry
+    lookback_candles: Final[int] = 500  # Historical data window
+    max_slippage_pct: Final[float] = 0.001  # 0.1 % allowed slippage
+    order_timeout_seconds: Final[int] = 10
+
+
+@dataclass(frozen=True)
+class StrategyConfig:
+    """Strategy indicator parameters."""
+
+    rsi_period: Final[int] = 14
+    rsi_oversold: Final[int] = 30
+    rsi_overbought: Final[int] = 70
+    ema_fast: Final[int] = 12
+    ema_slow: Final[int] = 26
+    volume_ma_period: Final[int] = 20
+
+
+@dataclass(frozen=True)
+class RiskConfig:
+    """Risk management boundaries."""
+
+    max_daily_trades: Final[int] = 10
+    max_drawdown_pct: Final[float] = 0.15  # 15 % max drawdown before shutdown
+    min_balance_usdt: Final[float] = 50.0
+    max_concurrent_positions: Final[int] = 6  # Set to 6 per your request
+
+
+def validate_config() -> None:
+    """Quick sanity checks on the configuration values."""
+    if not ExchangeConfig().api_key or not ExchangeConfig().api_secret:
+        logger.warning(
+            "API credentials are missing. Set BINANCE_API_KEY and BINANCE_API_SECRET environment variables."
+        )
+    if (
+        TradingConfig().risk_per_trade_pct <= 0
+        or TradingConfig().risk_per_trade_pct > 0.1
+    ):
+        logger.warning(
+            "Risk per trade is set to %0.4f, which is unusually high.",
+            TradingConfig().risk_per_trade_pct,
+        )
