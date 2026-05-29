@@ -4,34 +4,34 @@ import pandas_ta as ta
 import config
 
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates EXTREME anomaly indicators with Volume Climax."""
+    """Calculates Trend Breakout indicators."""
     df.columns = [col.lower() for col in df.columns]
     
-    # Extreme Bollinger Bands
+    # Bollinger Bands
     bb = df.ta.bbands(length=config.BB_PERIOD, std=config.BB_STD)
     col_bbl = [c for c in bb.columns if 'bbl' in c.lower()][0]
     col_bbu = [c for c in bb.columns if 'bbu' in c.lower()][0]
-    df['bbl_extreme'] = bb[col_bbl]
-    df['bbu_extreme'] = bb[col_bbu]
+    df['bbl_band'] = bb[col_bbl]
+    df['bbu_band'] = bb[col_bbu]
     
-    # Fast RSI
-    df['rsi_fast'] = df.ta.rsi(length=config.RSI_PERIOD)
+    # RSI
+    df['rsi'] = df.ta.rsi(length=config.RSI_PERIOD)
     
-    # Volume Average for Climax Detection
+    # Volume SMA
     df['vol_sma'] = df['volume'].rolling(window=config.VOLUME_PERIOD).mean()
     
-    # Volatility for Dynamic Stops
+    # ATR
     df['atr'] = df.ta.atr(length=config.ATR_PERIOD)
     
     df.dropna(inplace=True)
     return df
 
 def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """The Volumetric Rubber Band Reversion Logic."""
+    """Momentum Breakout Logic."""
     close = df['close']
-    bbl = df['bbl_extreme']
-    bbu = df['bbu_extreme']
-    rsi = df['rsi_fast']
+    bbl = df['bbl_band']
+    bbu = df['bbu_band']
+    rsi = df['rsi']
     volume = df['volume']
     vol_sma = df['vol_sma']
     atr = df['atr']
@@ -39,24 +39,24 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
     df['signal'] = 0
     df['strategy_type'] = 'None'
 
-    # Condition: Volume must be an extreme anomaly (Institutional Climax)
-    volume_climax = volume > (vol_sma * config.VOLUME_MULT)
+    # Volume Climax = Smart Money Footprint
+    volume_surge = volume > (vol_sma * config.VOLUME_MULT)
 
-    # --- THE VOLUMETRIC RUBBER BAND CONDITIONS ---
-    # Long: Dumped outside BB, RSI dead, AND Volume exploded (Panic Selling Climax)
-    long_cond = (close < bbl) & (rsi < config.RSI_OS) & volume_climax
+    # --- THE HIJACKER CONDITIONS ---
+    # Long: Breaking UPPER band, RSI shows strength, Volume surging
+    long_cond = (close > bbu) & (rsi > config.RSI_OB) & volume_surge
     
-    # Short: Pumped outside BB, RSI burning, AND Volume exploded (FOMO Buying Climax)
-    short_cond = (close > bbu) & (rsi > config.RSI_OB) & volume_climax
+    # Short: Breaking LOWER band, RSI shows weakness, Volume surging
+    short_cond = (close < bbl) & (rsi < config.RSI_OS) & volume_surge
 
     # Apply Signals
     df.loc[long_cond, 'signal'] = 1
-    df.loc[long_cond, 'strategy_type'] = 'Vol_Climax_Long'
+    df.loc[long_cond, 'strategy_type'] = 'Breakout_Long'
     
     df.loc[short_cond, 'signal'] = -1
-    df.loc[short_cond, 'strategy_type'] = 'Vol_Climax_Short'
+    df.loc[short_cond, 'strategy_type'] = 'Breakout_Short'
 
-    # Mathematically Optimized Stops (Positive Expectancy)
+    # Mathematical Stops
     df['sl_distance_price'] = atr * config.ATR_SL_MULTIPLIER
     df['tp_distance_price'] = atr * config.ATR_TP_MULTIPLIER
 
