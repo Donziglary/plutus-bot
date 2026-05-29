@@ -1,99 +1,115 @@
-# strategy.py
+#!/usr/bin/env python3
+"""
+Strategy module containing technical indicator calculations and signal generation logic.
+Fully integrated with the object-oriented configuration dataclasses.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Optional
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
-import config
 
-def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates MTF Trend, Squeeze, and Candle Geometry Indicators."""
-    df.columns = [col.lower() for col in df.columns]
+from config import StrategyConfig, TradingConfig
+
+# Setup module logger
+logger = logging.getLogger(__name__)
+
+def generate_signals(df: pd.DataFrame, config: Optional[StrategyConfig] = None) -> pd.DataFrame:
+    """
+    Calculates technical indicators (EMA, RSI, Volume MA, ATR) and generates
+    trading signals based on the strategy rules.
     
-    # Macro Trend
-    df['ema_macro'] = df.ta.ema(length=config.EMA_MACRO_PERIOD)
+    Args:
+        df: A pandas DataFrame with datetime index and columns: open, high, low, close, volume
+        config: Optional StrategyConfig instance. If None, default is used.
+        
+    Returns:
+        The DataFrame with added indicator and signal columns.
+    """
+    if df.empty:
+        return df
+        
+    cfg = config or StrategyConfig()
+    t_cfg = TradingConfig()
     
-    # Squeeze Components
-    bb = df.ta.bbands(length=config.BB_PERIOD, std=config.BB_STD)
-    df['bbl'] = bb[f'BBL_{config.BB_PERIOD}_{config.BB_STD}.0'] if f'BBL_{config.BB_PERIOD}_{config.BB_STD}.0' in bb.columns else bb.iloc[:, 0]
-    df['bbu'] = bb[f'BBU_{config.BB_PERIOD}_{config.BB_STD}.0'] if f'BBU_{config.BB_PERIOD}_{config.BB_STD}.0' in bb.columns else bb.iloc[:, 2]
+    try:
+        # Copy to avoid setting with copy warning
+        df = df.copy()
+        
+        # 1. EMA Calculations
+        df["ema_fast"] = df["close"].ewm(span=cfg.ema_fast, adjust=False).mean()
+        df["ema_slow"] = df["close"].ewm(span=cfg.ema_slow, adjust=False).mean()
+        
+        # 2. RSI Calculation (Native pandas implementation for maximum robustness)
+        delta = df["close"].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=cfg.rsi_period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=cfg.rsi_period).mean()
+        rs = gain / (loss + 1e-10)
+        df["rsi"] = 100 - (100 / (1 + rs))
+        
+        # 3. Volume MA Calculation
+        df["volume_ma"] = df["volume"].rolling(window=cfg.volume_ma_period).mean()
+        
+        # 4. ATR Calculation (True Range and Average True Range)
+        high_low = df["high"] - df["low"]
+        high_close_prev = (df["high"] - df["close"].shift(1)).abs()
+        low_close_prev = (df["low"] - df["close"].shift(1)).abs()
+        
+        tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
+        df["atr"] = tr.rolling(window=t_cfg.atr_period).mean()
+        
+        # 5. Signal Generation Logic
+        # Long Signal: Fast EMA > Slow EMA & Close > Slow EMA & RSI < Overbought & Volume > Volume MA
+        df["signal_long"] = (
+            (df["close"] > df["ema_slow"]) & 
+            (df["ema_fast"] > df["ema_slow"]) & 
+            (df["rsi"] < cfg.rsi_overbought) & 
+            (df["volume"] > df["volume_ma"])
+        )
+        
+        # Short Signal: Fast EMA < Slow EMA & Close < Slow EMA & RSI > Oversold & Volume > Volume MA
+        df["signal_short"] = (
+            (df["close"] < df["ema_slow"]) & 
+            (df["ema_fast"] < df["ema_slow"]) & 
+            (df["rsi"] > cfg.rsi_oversold) & 
+            (df["volume"] > df["volume_ma"])
+        )
+        
+        return df
+        
+    except Exception as e:
+        logger.error("Error generating strategy signals: %s", e)
+        # Ensure fallback columns exist so main.py doesn't crash on KeyError
+        if "signal_long" not in df.columns:
+            df["signal_long"] = False
+        if "signal_short" not in df.columns:
+            df["signal_short"] = False
+        if "atr" not in df.columns:
+            df["atr"] = 0.0
+        return df
+
+def compute_atr_stop(entry_price: float, atr_value: float, side: str, trading_cfg: Optional[TradingConfig] = None) -> float:
+    """
+    Computes the absolute stop-loss price level based on entry price, ATR, and multiplier.
     
-    kc = df.ta.kc(length=config.KC_PERIOD, scalar=config.KC_MULT)
-    col_kcl = [c for c in kc.columns if 'kcl' in c.lower()][0]
-    col_kcu = [c for c in kc.columns if 'kcu' in c.lower()][0]
-    df['kcl'] = kc[col_kcl]
-    df['kcu'] = kc[col_kcu]
+    Args:
+        entry_price: The execution price of the position entry.
+        atr_value: The current ATR indicator value.
+        side: Position direction, either 'LONG' or 'SHORT'.
+        trading_cfg: Optional TradingConfig instance for the ATR multiplier.
+        
+    Returns:
+        The calculated absolute stop-loss price.
+    """
+    cfg = trading_cfg or TradingConfig()
+    multiplier = cfg.atr_multiplier_sl
     
-    # Momentum & Volatility
-    df['rsi'] = df.ta.rsi(length=config.RSI_PERIOD)
-    df['vol_sma'] = df['volume'].rolling(window=config.VOLUME_PERIOD).mean()
-    df['atr'] = df.ta.atr(length=config.ATR_PERIOD)
-    
-    # Candle Geometry Math
-    candle_range = (df['high'] - df['low']).replace(0, 0.00001)
-    df['body_efficiency'] = abs(df['close'] - df['open']) / candle_range
-    df['upper_wick_ratio'] = (df['high'] - df[['open', 'close']].max(axis=1)) / candle_range
-    df['lower_wick_ratio'] = (df[['open', 'close']].min(axis=1) - df['low']) / candle_range
-    
-    df.dropna(inplace=True)
-    return df
-
-def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """TTM Squeeze + Candle Geometry Anti-Fakeout Logic."""
-    close = df['close']
-    bbl, bbu = df['bbl'], df['bbu']
-    kcl, kcu = df['kcl'], df['kcu']
-    rsi = df['rsi']
-    volume, vol_sma = df['volume'], df['vol_sma']
-    atr, ema = df['atr'], df['ema_macro']
-
-    df['signal'] = 0
-    df['strategy_type'] = 'None'
-
-    # Squeeze Detection
-    df['squeeze_on'] = (bbu < kcu) & (bbl > kcl)
-    squeeze_loaded = df['squeeze_on'].rolling(window=3).max() > 0
-
-    # Flow & Surge
-    macro_uptrend = close > ema
-    macro_downtrend = close < ema
-    volume_surge = volume > (vol_sma * config.VOLUME_MULT)
-
-    # Geometry Filters
-    strong_body = df['body_efficiency'] > config.MIN_BODY_EFFICIENCY
-    no_top_rejection = df['upper_wick_ratio'] < config.MAX_WICK_RATIO
-    no_bottom_rejection = df['lower_wick_ratio'] < config.MAX_WICK_RATIO
-
-    # Entry Logic
-    long_cond = (
-        macro_uptrend & 
-        squeeze_loaded & 
-        (close > bbu) & 
-        (rsi > 55) & 
-        volume_surge & 
-        strong_body & 
-        no_top_rejection
-    )
-    
-    short_cond = (
-        macro_downtrend & 
-        squeeze_loaded & 
-        (close < bbl) & 
-        (rsi < 45) & 
-        volume_surge & 
-        strong_body & 
-        no_bottom_rejection
-    )
-
-    df.loc[long_cond, 'signal'] = 1
-    df.loc[long_cond, 'strategy_type'] = 'Geom_Sqz_Long'
-    
-    df.loc[short_cond, 'signal'] = -1
-    df.loc[short_cond, 'strategy_type'] = 'Geom_Sqz_Short'
-
-    df['sl_distance_price'] = atr * config.ATR_SL_MULTIPLIER
-    df['tp_distance_price'] = atr * config.ATR_TP_MULTIPLIER
-
-    return df
-
-def process_market(df: pd.DataFrame) -> pd.DataFrame:
-    df = calculate_indicators(df)
-    return generate_signals(df)
+    if side.upper() == "LONG":
+        return entry_price - (atr_value * multiplier)
+    elif side.upper() == "SHORT":
+        return entry_price + (atr_value * multiplier)
+    else:
+        logger.warning("Invalid position side '%s' passed to compute_atr_stop. Falling back to entry price.", side)
+        return entry_price
